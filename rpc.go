@@ -3,25 +3,26 @@ package fastrpc
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
 	"sync"
 )
 
-type RPCCapability struct {
+type MasterCapabilities struct {
 	Name              string `json:"name"`
 	Description       string `json:"description"`
 	IncomingEncoding  string `json:"incomingEncoding"`
 	ReturningEncoding string `json:"returningEncoding"`
-	rpc               func(io.ReadWriter, uint64) (uint64, error)
+	rpc               func(*IOOperator, uint64) (uint64, error)
 }
 
 type RpcMaster struct {
 	counter   uint64
 	mutex     sync.Mutex
 	discarder io.Writer
-	registrar map[uint64]*RPCCapability
+	registrar map[uint64]*MasterCapabilities
 }
 
 func NewMaster() (*RpcMaster, error) {
@@ -31,19 +32,46 @@ func NewMaster() (*RpcMaster, error) {
 		return nil, err
 	}
 
-	return &RpcMaster{
+	var master RpcMaster = RpcMaster{
 		discarder: discarder,
-		registrar: make(map[uint64]*RPCCapability),
-	}, nil
+		registrar: make(map[uint64]*MasterCapabilities),
+	}
+
+	master.RegisterRPC(
+		"capabilties",
+		"Get Master's All Capabilities",
+		"json",
+		"json",
+		func(stream *IOOperator, length uint64) (uint64, error) {
+			capabilities, err := master.ShowCapabilities()
+			if err != nil {
+				return 0, err
+			}
+
+			capabilitiesBytes, err := json.Marshal(capabilities)
+			if err != nil {
+				return 0, err
+			}
+
+			err = stream.WriteBuffer(capabilitiesBytes)
+			if err != nil {
+				return 0, err
+			}
+
+			return length, nil
+		},
+	)
+
+	return &master, nil
 }
 
 func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncoding string, returningEncoding string,
-	rpc func(io.ReadWriter, uint64) (uint64, error)) {
+	rpc func(*IOOperator, uint64) (uint64, error)) {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	r.registrar[r.counter] = &RPCCapability{
+	r.registrar[r.counter] = &MasterCapabilities{
 		Name:              name,
 		Description:       description,
 		IncomingEncoding:  incomingEncoding,
@@ -55,7 +83,7 @@ func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncodin
 
 func (r *RpcMaster) ShowCapabilities() ([]struct {
 	RpcID uint64 `json:"rpcId"`
-	*RPCCapability
+	*MasterCapabilities
 }, error) {
 
 	r.mutex.Lock()
@@ -63,22 +91,22 @@ func (r *RpcMaster) ShowCapabilities() ([]struct {
 
 	var capabilities []struct {
 		RpcID uint64
-		*RPCCapability
+		*MasterCapabilities
 	} = make([]struct {
 		RpcID uint64
-		*RPCCapability
+		*MasterCapabilities
 	}, len(r.registrar))
 
 	for id, rpc := range r.registrar {
 		capabilities = append(capabilities, struct {
 			RpcID uint64
-			*RPCCapability
+			*MasterCapabilities
 		}{id, rpc})
 	}
 
 	return []struct {
 		RpcID uint64 "json:\"rpcId\""
-		*RPCCapability
+		*MasterCapabilities
 	}(capabilities), nil
 }
 
@@ -136,7 +164,7 @@ loop:
 						return
 					}
 
-					bytesLeft, protocolError := capability.rpc(tcpStream, binary.BigEndian.Uint64(lengthBuffer))
+					bytesLeft, protocolError := capability.rpc(&IOOperator{tcpStream}, binary.BigEndian.Uint64(lengthBuffer))
 					if protocolError != nil {
 						return
 					}
@@ -155,17 +183,17 @@ loop:
 	return nil
 }
 
-func readSpecifiedBytes(stream *net.TCPConn, bytesCount int) ([]byte, error) {
+func readSpecifiedBytes(tcpStream *net.TCPConn, bytesCount int) ([]byte, error) {
 
 	var bytesBuffer []byte = make([]byte, bytesCount)
 	for {
 		var tempBuffer []byte = make([]byte, bytesCount)
-		bytesRead, err := stream.Read(bytesBuffer)
+		bytesRead, err := tcpStream.Read(bytesBuffer)
 		if err != nil {
 			return nil, err
 		}
 
-		if bytesRead < 8 {
+		if bytesRead < bytesCount {
 			bytesCount -= bytesRead
 		}
 

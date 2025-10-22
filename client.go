@@ -5,13 +5,22 @@ import (
 	"sync"
 )
 
+type MasterCapabilitiesDTO struct {
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	IncomingEncoding  string `json:"incomingEncoding"`
+	ReturningEncoding string `json:"returningEncoding"`
+}
+
 type RpcSlave struct {
-	closed         bool
-	poolSize       int
-	masterPort     int
-	mutex          sync.Mutex
-	masterIP       net.IP
-	connectionPool chan *net.TCPConn
+	closed             bool
+	poolSize           int
+	masterPort         int
+	masterIP           net.IP
+	mutex              sync.Mutex
+	capabilitiesMap    map[string]uint64
+	masterCapabilities map[uint64]*MasterCapabilitiesDTO
+	connectionPool     chan *net.TCPConn
 }
 
 func NewRpcSlave(masterIP net.IP, masterPort int) (*RpcSlave, error) {
@@ -51,4 +60,10 @@ func (r *RpcSlave) DeInitialize() {
 	for masterConnection := range r.connectionPool {
 		masterConnection.Close()
 	}
+}
+
+func (r *RpcSlave) GetMasterCapabilities() {
+
+	// connection := <- r.connectionPool
+
 }
