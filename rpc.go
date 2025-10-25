@@ -133,36 +133,57 @@ loop:
 			go func() {
 				defer tcpStream.Close()
 
-				protocolError := tcpStream.SetReadBuffer(1024 * 1024)
-				if protocolError != nil {
+				streamError := tcpStream.SetReadBuffer(1024 * 1024)
+				if streamError != nil {
 					return
 				}
 
-				protocolError = tcpStream.SetKeepAlive(true)
-				if protocolError != nil {
+				streamError = tcpStream.SetKeepAlive(true)
+				if streamError != nil {
 					return
 				}
 
 				for {
-					headersBuffer, protocolError := readSpecifiedBytes(tcpStream, 16)
-					if protocolError != nil {
-						return
-					}
-
-					capability, ok := r.registrar[binary.BigEndian.Uint64(headersBuffer[:8])]
-					if !ok {
+					headersBuffer, streamError := readSpecifiedBytes(tcpStream, 16)
+					if streamError != nil {
 						return
 					}
 
 					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[8:]))
+
+					capability, ok := r.registrar[binary.BigEndian.Uint64(headersBuffer[:8])]
+					if !ok {
+						streamError = ioStream.WriteError("rpc not found")
+						if streamError != nil {
+							return
+						}
+
+						streamError = discard(tcpStream, r.discarder, ioStream.leftLength)
+						if streamError != nil {
+							return
+						}
+
+						continue
+					}
+
 					rpcError := capability.rpc(ioStream)
-					if rpcError != nil {
-						return
+					if rpcError != nil && !ioStream.written {
+						streamError = ioStream.WriteError(rpcError.Error())
+						if streamError != nil {
+							return
+						}
 					}
 
 					if ioStream.leftLength != 0 {
-						protocolError = r.Discard(tcpStream, int64(ioStream.leftLength))
-						if protocolError != nil {
+						streamError = discard(tcpStream, r.discarder, ioStream.leftLength)
+						if streamError != nil {
+							return
+						}
+					}
+
+					if !ioStream.written {
+						streamError = ioStream.WriteNothing()
+						if streamError != nil {
 							return
 						}
 					}

@@ -120,3 +120,46 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 
 	return nil
 }
+
+func (i *IOOperator) WriteNothing() error {
+
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+
+	if i.written {
+		return nil
+	} else {
+		i.written = true
+	}
+
+	var metaDataBuffer []byte = make([]byte, 9)
+	binary.LittleEndian.PutUint64(metaDataBuffer[1:], 0)
+	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (i *IOOperator) WriteError(message string) error {
+
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+
+	if i.written {
+		return nil
+	} else {
+		i.written = true
+	}
+
+	var metaDataBuffer []byte = make([]byte, 9)
+	metaDataBuffer[0] = 0b00000001
+	binary.LittleEndian.PutUint64(metaDataBuffer[1:], uint64(len(message)))
+	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
+	if err != nil {
+		return err
+	}
+
+	return writeSpecifiedBytes(i.stream, []byte(message), len(message))
+}

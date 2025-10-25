@@ -1,19 +1,20 @@
 package fastrpc
 
 import (
-	"errors"
+	"io"
 	"net"
 )
 
-func (r *RpcMaster) Discard(stream *net.TCPConn, length int64) error {
+func discard(stream *net.TCPConn, discarder io.Writer, length uint64) error {
 
-	actualDiscardLength, err := stream.WriteTo(r.discarder)
+	buf, err := readSpecifiedBytes(stream, int(length))
 	if err != nil {
 		return err
 	}
 
-	if actualDiscardLength != length {
-		return errors.New("[protocol violation]: unexpected length")
+	err = writeSpecifiedBytes(discarder, buf, int(length))
+	if err != nil {
+		return err
 	}
 
 	return nil
