@@ -15,7 +15,7 @@ type MasterCapabilities struct {
 	Description       string `json:"description"`
 	IncomingEncoding  string `json:"incomingEncoding"`
 	ReturningEncoding string `json:"returningEncoding"`
-	rpc               func(*IOOperator, uint64) (uint64, error)
+	rpc               func(*IOOperator) error
 }
 
 type RpcMaster struct {
@@ -27,7 +27,7 @@ type RpcMaster struct {
 
 func NewMaster() (*RpcMaster, error) {
 
-	discarder, err := os.Open("/dev/null")
+	discarder, err := os.OpenFile("/dev/null", os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -42,23 +42,18 @@ func NewMaster() (*RpcMaster, error) {
 		"Get Master's All Capabilities",
 		"json",
 		"json",
-		func(stream *IOOperator, length uint64) (uint64, error) {
+		func(stream *IOOperator) error {
 			capabilities, err := master.ShowCapabilities()
 			if err != nil {
-				return 0, err
+				return err
 			}
 
-			capabilitiesBytes, err := json.Marshal(capabilities)
+			_, err = json.Marshal(capabilities)
 			if err != nil {
-				return 0, err
+				return err
 			}
 
-			err = stream.WriteBuffer(capabilitiesBytes)
-			if err != nil {
-				return 0, err
-			}
-
-			return length, nil
+			return nil
 		},
 	)
 
@@ -66,7 +61,7 @@ func NewMaster() (*RpcMaster, error) {
 }
 
 func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncoding string, returningEncoding string,
-	rpc func(*IOOperator, uint64) (uint64, error)) {
+	rpc func(*IOOperator) error) {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -149,28 +144,24 @@ loop:
 				}
 
 				for {
-					rpcIDBuffer, protocolError := readSpecifiedBytes(tcpStream, 8)
+					headersBuffer, protocolError := readSpecifiedBytes(tcpStream, 16)
 					if protocolError != nil {
 						return
 					}
 
-					lengthBuffer, protocolError := readSpecifiedBytes(tcpStream, 8)
-					if protocolError != nil {
-						return
-					}
-
-					capability, ok := r.registrar[binary.BigEndian.Uint64(rpcIDBuffer)]
+					capability, ok := r.registrar[binary.BigEndian.Uint64(headersBuffer[:8])]
 					if !ok {
 						return
 					}
 
-					bytesLeft, protocolError := capability.rpc(&IOOperator{tcpStream}, binary.BigEndian.Uint64(lengthBuffer))
-					if protocolError != nil {
+					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[8:]))
+					rpcError := capability.rpc(ioStream)
+					if rpcError != nil {
 						return
 					}
 
-					if bytesLeft != 0 {
-						protocolError = r.Discard(tcpStream, int64(bytesLeft))
+					if ioStream.leftLength != 0 {
+						protocolError = r.Discard(tcpStream, int64(ioStream.leftLength))
 						if protocolError != nil {
 							return
 						}
@@ -181,28 +172,4 @@ loop:
 	}
 
 	return nil
-}
-
-func readSpecifiedBytes(tcpStream *net.TCPConn, bytesCount int) ([]byte, error) {
-
-	var bytesBuffer []byte = make([]byte, bytesCount)
-	for {
-		var tempBuffer []byte = make([]byte, bytesCount)
-		bytesRead, err := tcpStream.Read(bytesBuffer)
-		if err != nil {
-			return nil, err
-		}
-
-		if bytesRead < bytesCount {
-			bytesCount -= bytesRead
-		}
-
-		bytesBuffer = append(bytesBuffer, tempBuffer[:bytesRead]...)
-
-		if bytesCount == 0 {
-			break
-		}
-	}
-
-	return bytesBuffer, nil
 }
