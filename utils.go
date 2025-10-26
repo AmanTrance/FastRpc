@@ -7,7 +7,7 @@ import (
 
 func readSpecifiedBytes(stream io.Reader, bytesCount int) ([]byte, error) {
 
-	var bytesBuffer []byte = make([]byte, bytesCount)
+	var bytesBuffer []byte = make([]byte, 0, bytesCount)
 	for {
 		var tempBuffer []byte = make([]byte, bytesCount)
 		bytesRead, err := stream.Read(tempBuffer)
