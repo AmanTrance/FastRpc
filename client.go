@@ -85,7 +85,7 @@ func (r *RpcSlave) GetMasterCapabilities() ([]struct {
 	}()
 
 	var metaDataBuffer []byte = make([]byte, 12)
-	binary.BigEndian.PutUint32(metaDataBuffer[:4], 1)
+	binary.BigEndian.PutUint32(metaDataBuffer[:4], 0)
 	err := writeSpecifiedBytes(connection, metaDataBuffer, 12)
 	if err != nil {
 		return nil, err

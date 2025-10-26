@@ -58,9 +58,9 @@ func (i *IOOperator) WriteIOFromBuffer(buf []byte) error {
 		i.written = true
 	}
 
-	var lengthBuffer []byte = make([]byte, 8)
-	binary.LittleEndian.PutUint64(lengthBuffer, uint64(len(buf)))
-	err := writeSpecifiedBytes(i.stream, lengthBuffer, 8)
+	var metaDataBuffer []byte = make([]byte, 9)
+	binary.LittleEndian.PutUint64(metaDataBuffer[1:], uint64(len(buf)))
+	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
 	if err != nil {
 		return err
 	}
