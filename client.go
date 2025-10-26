@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 )
@@ -19,14 +18,15 @@ type RpcSlave struct {
 	connectionPool  chan *net.TCPConn
 }
 
-func NewRpcSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) {
+func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) {
 
 	var slave RpcSlave = RpcSlave{
-		poolSize:       poolSize,
-		masterPort:     masterPort,
-		masterIP:       masterIP,
-		mutex:          new(sync.Mutex),
-		connectionPool: make(chan *net.TCPConn, poolSize),
+		poolSize:        poolSize,
+		masterPort:      masterPort,
+		masterIP:        masterIP,
+		mutex:           new(sync.Mutex),
+		capabilitiesMap: make(map[string]uint32),
+		connectionPool:  make(chan *net.TCPConn, poolSize),
 	}
 
 	for range poolSize {
@@ -92,8 +92,6 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 		return nil, err
 	}
 
-	fmt.Printf("%v\n", responseBuf)
-
 	if (responseBuf[0] & 0b00000001) == 0b00000001 {
 		errorBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
@@ -108,8 +106,6 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 		}
 
 		var capabilities []MasterCapabilitiesDTO
-
-		fmt.Printf("%v\n", dataBuf)
 
 		err = json.Unmarshal(dataBuf, &capabilities)
 		if err != nil {

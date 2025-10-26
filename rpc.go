@@ -4,32 +4,17 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"io"
+	"errors"
 	"net"
 	"os"
 	"sync"
 )
 
-type MasterCapabilities struct {
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	IncomingEncoding  string `json:"incomingEncoding"`
-	ReturningEncoding string `json:"returningEncoding"`
-	rpc               func(*IOOperator) error
-}
-
-type MasterCapabilitiesDTO struct {
-	RpcID             uint32 `json:"rpcId"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	IncomingEncoding  string `json:"incomingEncoding"`
-	ReturningEncoding string `json:"returningEncoding"`
-}
-
 type RpcMaster struct {
 	counter   uint32
-	mutex     sync.Mutex
-	discarder io.Writer
+	socket    *net.TCPListener
+	mutex     *sync.Mutex
+	discarder *os.File
 	registrar map[uint32]*MasterCapabilities
 }
 
@@ -41,6 +26,7 @@ func NewMaster() (*RpcMaster, error) {
 	}
 
 	var master RpcMaster = RpcMaster{
+		mutex:     new(sync.Mutex),
 		discarder: discarder,
 		registrar: make(map[uint32]*MasterCapabilities),
 	}
@@ -86,9 +72,6 @@ func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncodin
 
 func (r *RpcMaster) ShowCapabilities() ([]MasterCapabilitiesDTO, error) {
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
 	var capabilities []MasterCapabilitiesDTO = make([]MasterCapabilitiesDTO, 0)
 
 	for id, rpc := range r.registrar {
@@ -106,6 +89,9 @@ func (r *RpcMaster) ShowCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 func (r *RpcMaster) RunRPC(ctx context.Context, ip net.IP, port int) error {
 
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	socket, err := net.ListenTCP("tcp", &net.TCPAddr{
 		IP:   ip,
 		Port: port,
@@ -114,14 +100,13 @@ func (r *RpcMaster) RunRPC(ctx context.Context, ip net.IP, port int) error {
 		return err
 	}
 
-	defer socket.Close()
+	r.socket = socket
 
-loop:
 	for {
 		select {
 
 		case <-ctx.Done():
-			break loop
+			return ctx.Err()
 
 		default:
 			tcpStream, err := socket.AcceptTCP()
@@ -192,6 +177,13 @@ loop:
 			}()
 		}
 	}
+}
 
-	return nil
+func (r *RpcMaster) Close() error {
+
+	if r.socket == nil {
+		return errors.New("unexpected close")
+	}
+
+	return r.socket.Close()
 }
