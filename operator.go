@@ -136,9 +136,7 @@ func (i *IOOperator) WriteNothing() error {
 		i.written = true
 	}
 
-	var metaDataBuffer []byte = make([]byte, 9)
-	binary.LittleEndian.PutUint64(metaDataBuffer[1:], 0)
-	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
+	err := writeSpecifiedBytes(i.stream, make([]byte, 9), 9)
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 )
@@ -71,10 +72,7 @@ func (r *RpcSlave) DeInitialize() {
 	r.closed = true
 }
 
-func (r *RpcSlave) GetMasterCapabilities() ([]struct {
-	RpcID uint32 `json:"rpcId"`
-	*MasterCapabilities
-}, error) {
+func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -107,13 +105,9 @@ func (r *RpcSlave) GetMasterCapabilities() ([]struct {
 			return nil, err
 		}
 
-		var capabilities []struct {
-			RpcID uint32 `json:"rpcId"`
-			*MasterCapabilities
-		} = make([]struct {
-			RpcID uint32 `json:"rpcId"`
-			*MasterCapabilities
-		}, 0)
+		var capabilities []MasterCapabilitiesDTO = make([]MasterCapabilitiesDTO, 0)
+
+		fmt.Printf("%v", dataBuf)
 
 		err = json.Unmarshal(dataBuf, &capabilities)
 		if err != nil {

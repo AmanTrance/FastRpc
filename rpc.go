@@ -18,6 +18,14 @@ type MasterCapabilities struct {
 	rpc               func(*IOOperator) error
 }
 
+type MasterCapabilitiesDTO struct {
+	RpcID             uint32 `json:"rpcId"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	IncomingEncoding  string `json:"incomingEncoding"`
+	ReturningEncoding string `json:"returningEncoding"`
+}
+
 type RpcMaster struct {
 	counter   uint32
 	mutex     sync.Mutex
@@ -76,33 +84,24 @@ func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncodin
 	r.counter++
 }
 
-func (r *RpcMaster) ShowCapabilities() ([]struct {
-	RpcID uint32 `json:"rpcId"`
-	*MasterCapabilities
-}, error) {
+func (r *RpcMaster) ShowCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	var capabilities []struct {
-		RpcID uint32 `json:"rpcId"`
-		*MasterCapabilities
-	} = make([]struct {
-		RpcID uint32 `json:"rpcId"`
-		*MasterCapabilities
-	}, len(r.registrar))
+	var capabilities []MasterCapabilitiesDTO = make([]MasterCapabilitiesDTO, 0)
 
 	for id, rpc := range r.registrar {
-		capabilities = append(capabilities, struct {
-			RpcID uint32 `json:"rpcId"`
-			*MasterCapabilities
-		}{id, rpc})
+		capabilities = append(capabilities, MasterCapabilitiesDTO{
+			RpcID:             id,
+			Name:              rpc.Name,
+			Description:       rpc.Description,
+			IncomingEncoding:  rpc.IncomingEncoding,
+			ReturningEncoding: rpc.ReturningEncoding,
+		})
 	}
 
-	return []struct {
-		RpcID uint32 `json:"rpcId"`
-		*MasterCapabilities
-	}(capabilities), nil
+	return capabilities, nil
 }
 
 func (r *RpcMaster) RunRPC(ctx context.Context, ip net.IP, port int) error {
