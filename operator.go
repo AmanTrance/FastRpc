@@ -59,7 +59,7 @@ func (i *IOOperator) WriteIOFromBuffer(buf []byte) error {
 	}
 
 	var metaDataBuffer []byte = make([]byte, 9)
-	binary.LittleEndian.PutUint64(metaDataBuffer[1:], uint64(len(buf)))
+	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(buf)))
 	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 	}
 
 	var metaDataBuffer []byte = make([]byte, 9)
-	binary.LittleEndian.PutUint64(metaDataBuffer[1:], uint64(count))
+	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(count))
 	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
 	if err != nil {
 		return err
@@ -157,7 +157,7 @@ func (i *IOOperator) WriteError(message string) error {
 
 	var metaDataBuffer []byte = make([]byte, 9)
 	metaDataBuffer[0] = 0b00000001
-	binary.LittleEndian.PutUint64(metaDataBuffer[1:], uint64(len(message)))
+	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(message)))
 	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
 	if err != nil {
 		return err

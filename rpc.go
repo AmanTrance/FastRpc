@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -61,8 +60,6 @@ func NewMaster() (*RpcMaster, error) {
 			if err != nil {
 				return err
 			}
-
-			fmt.Printf("%v\n", capabilitiesBytes)
 
 			return stream.WriteIOFromBuffer(capabilitiesBytes)
 		},
@@ -150,8 +147,6 @@ loop:
 					if streamError != nil {
 						return
 					}
-
-					fmt.Printf("%v\n", headersBuffer)
 
 					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[4:]))
 
