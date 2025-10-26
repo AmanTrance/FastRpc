@@ -48,7 +48,7 @@ func NewMaster() (*RpcMaster, error) {
 				return err
 			}
 
-			capabilitiesBytes, err := json.Marshal(capabilities)
+			capabilitiesBytes, err := json.Marshal(&capabilities)
 			if err != nil {
 				return err
 			}
@@ -149,7 +149,7 @@ loop:
 						return
 					}
 
-					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[8:]))
+					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[4:]))
 
 					capability, ok := r.registrar[binary.BigEndian.Uint32(headersBuffer[:4])]
 					if !ok {

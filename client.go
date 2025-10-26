@@ -84,9 +84,7 @@ func (r *RpcSlave) GetMasterCapabilities() ([]struct {
 		r.connectionPool <- connection
 	}()
 
-	var metaDataBuffer []byte = make([]byte, 12)
-	binary.BigEndian.PutUint32(metaDataBuffer[:4], 0)
-	err := writeSpecifiedBytes(connection, metaDataBuffer, 12)
+	err := writeSpecifiedBytes(connection, make([]byte, 12), 12)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +110,10 @@ func (r *RpcSlave) GetMasterCapabilities() ([]struct {
 		var capabilities []struct {
 			RpcID uint32 `json:"rpcId"`
 			*MasterCapabilities
-		}
+		} = make([]struct {
+			RpcID uint32 `json:"rpcId"`
+			*MasterCapabilities
+		}, 0)
 
 		err = json.Unmarshal(dataBuf, &capabilities)
 		if err != nil {
