@@ -74,6 +74,10 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 		return errors.New("chunkSize is not in bounds with count")
 	}
 
+	if chunkSize < 1 {
+		chunkSize = count
+	}
+
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 

@@ -19,10 +19,10 @@ type MasterCapabilities struct {
 }
 
 type RpcMaster struct {
-	counter   uint64
+	counter   uint32
 	mutex     sync.Mutex
 	discarder io.Writer
-	registrar map[uint64]*MasterCapabilities
+	registrar map[uint32]*MasterCapabilities
 }
 
 func NewMaster() (*RpcMaster, error) {
@@ -34,26 +34,26 @@ func NewMaster() (*RpcMaster, error) {
 
 	var master RpcMaster = RpcMaster{
 		discarder: discarder,
-		registrar: make(map[uint64]*MasterCapabilities),
+		registrar: make(map[uint32]*MasterCapabilities),
 	}
 
 	master.RegisterRPC(
-		"capabilties",
+		"capabilities",
 		"Get Master's All Capabilities",
-		"json",
-		"json",
+		"application/json",
+		"application/json",
 		func(stream *IOOperator) error {
 			capabilities, err := master.ShowCapabilities()
 			if err != nil {
 				return err
 			}
 
-			_, err = json.Marshal(capabilities)
+			capabilitiesBytes, err := json.Marshal(capabilities)
 			if err != nil {
 				return err
 			}
 
-			return nil
+			return stream.WriteIOFromBuffer(capabilitiesBytes)
 		},
 	)
 
@@ -77,7 +77,7 @@ func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncodin
 }
 
 func (r *RpcMaster) ShowCapabilities() ([]struct {
-	RpcID uint64 `json:"rpcId"`
+	RpcID uint32 `json:"rpcId"`
 	*MasterCapabilities
 }, error) {
 
@@ -85,22 +85,22 @@ func (r *RpcMaster) ShowCapabilities() ([]struct {
 	defer r.mutex.Unlock()
 
 	var capabilities []struct {
-		RpcID uint64
+		RpcID uint32 `json:"rpcId"`
 		*MasterCapabilities
 	} = make([]struct {
-		RpcID uint64
+		RpcID uint32 `json:"rpcId"`
 		*MasterCapabilities
 	}, len(r.registrar))
 
 	for id, rpc := range r.registrar {
 		capabilities = append(capabilities, struct {
-			RpcID uint64
+			RpcID uint32 `json:"rpcId"`
 			*MasterCapabilities
 		}{id, rpc})
 	}
 
 	return []struct {
-		RpcID uint64 "json:\"rpcId\""
+		RpcID uint32 `json:"rpcId"`
 		*MasterCapabilities
 	}(capabilities), nil
 }
@@ -144,23 +144,25 @@ loop:
 				}
 
 				for {
-					headersBuffer, streamError := readSpecifiedBytes(tcpStream, 16)
+					headersBuffer, streamError := readSpecifiedBytes(tcpStream, 12)
 					if streamError != nil {
 						return
 					}
 
 					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[8:]))
 
-					capability, ok := r.registrar[binary.BigEndian.Uint64(headersBuffer[:8])]
+					capability, ok := r.registrar[binary.BigEndian.Uint32(headersBuffer[:4])]
 					if !ok {
 						streamError = ioStream.WriteError("rpc not found")
 						if streamError != nil {
 							return
 						}
 
-						streamError = discard(tcpStream, r.discarder, ioStream.leftLength)
-						if streamError != nil {
-							return
+						if ioStream.leftLength != 0 {
+							streamError = discard(tcpStream, r.discarder, ioStream.leftLength)
+							if streamError != nil {
+								return
+							}
 						}
 
 						continue
