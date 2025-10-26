@@ -92,6 +92,8 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 		return nil, err
 	}
 
+	fmt.Printf("%v\n", responseBuf)
+
 	if (responseBuf[0] & 0b00000001) == 0b00000001 {
 		errorBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
@@ -105,9 +107,9 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 			return nil, err
 		}
 
-		var capabilities []MasterCapabilitiesDTO = make([]MasterCapabilitiesDTO, 0)
+		var capabilities []MasterCapabilitiesDTO
 
-		fmt.Printf("%v", dataBuf)
+		fmt.Printf("%v\n", dataBuf)
 
 		err = json.Unmarshal(dataBuf, &capabilities)
 		if err != nil {
