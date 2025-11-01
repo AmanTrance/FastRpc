@@ -87,7 +87,7 @@ func (r *RpcMaster) ShowCapabilities() ([]MasterCapabilitiesDTO, error) {
 	return capabilities, nil
 }
 
-func (r *RpcMaster) RunRPC(ctx context.Context, ip net.IP, port int) error {
+func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()

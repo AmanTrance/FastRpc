@@ -115,3 +115,48 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 		return capabilities, nil
 	}
 }
+
+func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	connection := <-r.connectionPool
+	defer func() {
+		r.connectionPool <- connection
+	}()
+
+	var headersBuffer []byte = make([]byte, 12)
+	binary.BigEndian.PutUint32(headersBuffer[:4], r.capabilitiesMap[method])
+	binary.BigEndian.PutUint64(headersBuffer[4:], uint64(len(buf)))
+	err := writeSpecifiedBytes(connection, headersBuffer, 12)
+	if err != nil {
+		return nil, err
+	}
+
+	err = writeSpecifiedBytes(connection, buf, len(buf))
+	if err != nil {
+		return nil, err
+	}
+
+	responseBuf, err := readSpecifiedBytes(connection, 9)
+	if err != nil {
+		return nil, err
+	}
+
+	if (responseBuf[0] & 0b00000001) == 0b00000001 {
+		errorBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, errors.New(string(errorBuf))
+	} else {
+		dataBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		if err != nil {
+			return nil, err
+		}
+
+		return dataBuf, nil
+	}
+}

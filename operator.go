@@ -25,6 +25,10 @@ func NewIOOperator(stream *net.TCPConn, readLength uint64) *IOOperator {
 }
 
 func (i *IOOperator) ReadDataLeft() uint64 {
+
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+
 	return i.leftLength
 }
 

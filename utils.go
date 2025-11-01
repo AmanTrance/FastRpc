@@ -11,16 +11,20 @@ func readSpecifiedBytes(stream io.Reader, bytesCount int) ([]byte, error) {
 	for {
 		var tempBuffer []byte = make([]byte, bytesCount)
 		bytesRead, err := stream.Read(tempBuffer)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 
 		bytesBuffer = append(bytesBuffer, tempBuffer[:bytesRead]...)
 
-		if bytesRead < bytesCount {
+		if bytesRead < bytesCount && err != io.EOF {
 			bytesCount -= bytesRead
 		} else {
-			break
+			if err == io.EOF {
+				return bytesBuffer, io.EOF
+			} else {
+				break
+			}
 		}
 	}
 
