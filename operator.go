@@ -8,6 +8,10 @@ import (
 	"sync"
 )
 
+const (
+	DEFAULT_CHUNK_SIZE = 65536
+)
+
 type IOOperator struct {
 	written    bool
 	leftLength uint64
@@ -78,10 +82,6 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 		return errors.New("chunkSize is not in bounds with count")
 	}
 
-	if chunkSize < 1 {
-		chunkSize = count
-	}
-
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
@@ -98,35 +98,7 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 		return err
 	}
 
-	for count > 0 {
-		if count >= chunkSize {
-			buf, err := readSpecifiedBytes(reader, chunkSize)
-			if err != nil {
-				return err
-			}
-
-			err = writeSpecifiedBytes(i.stream, buf, chunkSize)
-			if err != nil {
-				return err
-			}
-
-			count -= chunkSize
-		} else {
-			buf, err := readSpecifiedBytes(reader, count)
-			if err != nil {
-				return err
-			}
-
-			err = writeSpecifiedBytes(i.stream, buf, count)
-			if err != nil {
-				return err
-			}
-
-			count = 0
-		}
-	}
-
-	return nil
+	return readWriteSpecifiedBytes(reader, i.stream, count, chunkSize)
 }
 
 func (i *IOOperator) WriteNothing() error {

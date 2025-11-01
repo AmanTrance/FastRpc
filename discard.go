@@ -7,15 +7,5 @@ import (
 
 func discard(stream *net.TCPConn, discarder io.Writer, length uint64) error {
 
-	buf, err := readSpecifiedBytes(stream, int(length))
-	if err != nil {
-		return err
-	}
-
-	err = writeSpecifiedBytes(discarder, buf, int(length))
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return readWriteSpecifiedBytes(stream, discarder, int(length), DEFAULT_CHUNK_SIZE)
 }

@@ -54,18 +54,18 @@ func NewMaster() (*RpcMaster, error) {
 	return &master, nil
 }
 
-func (r *RpcMaster) RegisterRPC(name string, description string, incomingEncoding string, returningEncoding string,
+func (r *RpcMaster) RegisterRPC(name string, description string, incomingType string, returningType string,
 	rpc func(*IOOperator) error) {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
 	r.registrar[r.counter] = &MasterCapabilities{
-		Name:              name,
-		Description:       description,
-		IncomingEncoding:  incomingEncoding,
-		ReturningEncoding: returningEncoding,
-		rpc:               rpc,
+		Name:          name,
+		Description:   description,
+		IncomingType:  incomingType,
+		ReturningType: returningType,
+		rpc:           rpc,
 	}
 	r.counter++
 }
@@ -76,11 +76,11 @@ func (r *RpcMaster) ShowCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 	for id, rpc := range r.registrar {
 		capabilities = append(capabilities, MasterCapabilitiesDTO{
-			RpcID:             id,
-			Name:              rpc.Name,
-			Description:       rpc.Description,
-			IncomingEncoding:  rpc.IncomingEncoding,
-			ReturningEncoding: rpc.ReturningEncoding,
+			RpcID:         id,
+			Name:          rpc.Name,
+			Description:   rpc.Description,
+			IncomingType:  rpc.IncomingType,
+			ReturningType: rpc.ReturningType,
 		})
 	}
 
@@ -117,7 +117,7 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 			go func() {
 				defer tcpStream.Close()
 
-				streamError := tcpStream.SetReadBuffer(1024 * 1024)
+				streamError := tcpStream.SetReadBuffer(10 * 1024 * 1024)
 				if streamError != nil {
 					return
 				}
@@ -182,7 +182,7 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 func (r *RpcMaster) Close() error {
 
 	if r.socket == nil {
-		return errors.New("unexpected close")
+		return errors.New("invalid state for close operation")
 	}
 
 	return r.socket.Close()
