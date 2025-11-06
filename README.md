@@ -37,7 +37,7 @@ FastRpc solves the "call-and-wait" problem by providing:
 
 ```sh
 go get github.com/AmanTrance/FastRpc
-````
+```
 
 ## Quick Start
 
@@ -172,5 +172,3 @@ go test -v ./...
 ## License
 
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
-
-```
