@@ -1,0 +1,27 @@
+name: Go Tests
+
+on:
+  push:
+    branches:
+      - main
+      - tests
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install dependencies
+        run: go get github.com/stretchr/testify/assert
+
+      - name: Run Go tests
+        run: go test -v ./...
