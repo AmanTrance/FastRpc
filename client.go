@@ -121,13 +121,18 @@ func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
+	rpcID, ok := r.capabilitiesMap[method]
+	if !ok {
+		return nil, errors.New("unknown rpc method " + method)
+	}
+
 	connection := <-r.connectionPool
 	defer func() {
 		r.connectionPool <- connection
 	}()
 
 	var headersBuffer []byte = make([]byte, 12)
-	binary.BigEndian.PutUint32(headersBuffer[:4], r.capabilitiesMap[method])
+	binary.BigEndian.PutUint32(headersBuffer[:4], rpcID)
 	binary.BigEndian.PutUint64(headersBuffer[4:], uint64(len(buf)))
 	err := writeSpecifiedBytes(connection, headersBuffer, 12)
 	if err != nil {
