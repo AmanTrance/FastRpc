@@ -13,7 +13,7 @@ type RpcSlave struct {
 	poolSize        int
 	masterPort      int
 	masterIP        net.IP
-	mutex           *sync.Mutex
+	mutex           *sync.RWMutex
 	capabilitiesMap map[string]uint32
 	connectionPool  chan *net.TCPConn
 }
@@ -24,7 +24,7 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 		poolSize:        poolSize,
 		masterPort:      masterPort,
 		masterIP:        masterIP,
-		mutex:           new(sync.Mutex),
+		mutex:           new(sync.RWMutex),
 		capabilitiesMap: make(map[string]uint32),
 		connectionPool:  make(chan *net.TCPConn, poolSize),
 	}
@@ -35,6 +35,7 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 			Port: masterPort,
 		})
 		if err != nil {
+			slave.DeInitialize()
 			return nil, err
 		}
 
@@ -43,6 +44,7 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 
 	masterCapabilities, err := slave.GetMasterCapabilities()
 	if err != nil {
+		slave.DeInitialize()
 		return nil, err
 	}
 
@@ -74,8 +76,11 @@ func (r *RpcSlave) DeInitialize() {
 
 func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mutex.RLock()
+	if r.closed {
+		return nil, errors.New("rpc slave is closed")
+	}
+	defer r.mutex.RUnlock()
 
 	connection := <-r.connectionPool
 	defer func() {
@@ -118,8 +123,11 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mutex.RLock()
+	if r.closed {
+		return nil, errors.New("rpc slave is closed")
+	}
+	defer r.mutex.RUnlock()
 
 	rpcID, ok := r.capabilitiesMap[method]
 	if !ok {

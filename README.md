@@ -1,7 +1,7 @@
 # FastRpc
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/AmanTrance/FastRpc.svg)](https://pkg.go.dev/github.com/AmanTrance/FastRpc)
-[![Tests](https://github.com/AmanTrance/FastRpc/actions/workflows/go-test.yml/badge.svg)](https://github.com/AmanTrance/FastRpc/actions/workflows/go-test.yml)
+[![Tests](https://github.com/AmanTrance/FastRpc/actions/workflows/go-tests.yml/badge.svg)](https://github.com/AmanTrance/FastRpc/actions/workflows/go-tests.yml)
 
 **FastRpc** is a simple, high-performance, TCP-based binary RPC (Remote Procedure Call) framework for Go. It is designed for extremely low-latency, synchronous, server-to-server communication where a full-featured framework like gRPC is overkill and text-based protocols like JSON-RPC are too slow.
 
@@ -37,7 +37,7 @@ FastRpc solves the "call-and-wait" problem by providing:
 
 ```sh
 go get github.com/AmanTrance/FastRpc
-````
+```
 
 ## Quick Start
 
@@ -172,5 +172,3 @@ go test -v ./...
 ## License
 
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
-
-```

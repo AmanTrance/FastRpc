@@ -43,6 +43,11 @@ func setupMaster(t *testing.T) (master *fastrpc.RpcMaster, port int, teardown fu
 		return errors.New("this is a forced server error")
 	})
 
+	master.RegisterRPC("ping_slow", "returns pong after 20ms", "text", "text", func(i *fastrpc.IOOperator) error {
+		time.Sleep(20 * time.Millisecond)
+		return i.WriteIOFromBuffer([]byte("pong"))
+	})
+
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if !assertions.NoError(err) {
 		t.FailNow()
@@ -284,4 +289,97 @@ func TestDeInitialize(t *testing.T) {
 
 	_, err = slave.CallForBuffer("ping", nil)
 	assertions.Error(err, "Call should fail after DeInitialize")
+}
+
+func TestSlavePerformanceBottleneck(t *testing.T) {
+	assertions := assert.New(t)
+	_, port, teardown := setupMaster(t)
+	defer teardown()
+
+	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 10)
+	if !assertions.NoError(err) {
+		return
+	}
+	defer slave.DeInitialize()
+
+	numCalls := 10
+	var wg sync.WaitGroup
+	wg.Add(numCalls)
+
+	startTime := time.Now()
+	for i := range numCalls {
+		go func(i int) {
+			defer wg.Done()
+			_, err := slave.CallForBuffer("ping_slow", nil)
+			assert.NoError(t, err, "Call %d failed", i)
+		}(i)
+	}
+	wg.Wait()
+	duration := time.Since(startTime)
+
+	assertions.True(duration < 100*time.Millisecond,
+		"PERFORMANCE BUG: Calls were serialized. Expected < 100ms, took %v", duration)
+}
+
+func TestConnectionLeakOnNewSlave(t *testing.T) {
+	assertions := assert.New(t)
+
+	dummyListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if !assertions.NoError(err) {
+		return
+	}
+	port := dummyListener.Addr().(*net.TCPAddr).Port
+
+	go func() {
+		conn, err := dummyListener.Accept()
+		if err == nil {
+			conn.Close()
+		}
+		dummyListener.Close()
+	}()
+
+	_, err = fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+
+	assertions.Error(err,
+		"CONNECTION LEAK: NewSlave failed (as expected), but buggy code leaks the connection.")
+}
+
+func TestConnectionPoisoning(t *testing.T) {
+	assertions := assert.New(t)
+	_, port, teardown := setupMaster(t)
+
+	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	if !assertions.NoError(err) {
+		teardown()
+		return
+	}
+	defer slave.DeInitialize()
+
+	_, err = slave.CallForBuffer("ping", nil)
+	if !assertions.NoError(err, "First call should have worked") {
+		teardown()
+		return
+	}
+
+	t.Log("Killing master server...")
+	teardown()
+	time.Sleep(20 * time.Millisecond)
+
+	_, err = slave.CallForBuffer("ping", nil)
+	if !assertions.Error(err, "Call should fail after server is killed") {
+		t.Log("This call should have failed but didn't.")
+		return
+	}
+
+	t.Log("Starting new healthy server...")
+	_, port2, teardown2 := setupMaster(t)
+	defer teardown2()
+	if !assertions.Equal(port, port2, "Could not get the same port for new master") {
+		return
+	}
+
+	_, err = slave.CallForBuffer("ping", nil)
+
+	assertions.NoError(err,
+		"CONNECTION POISONING: Call to new server failed. The slave reused a dead connection.")
 }
