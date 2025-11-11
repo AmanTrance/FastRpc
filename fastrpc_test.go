@@ -409,7 +409,7 @@ func TestLargeDataStress(t *testing.T) {
 
 	startTime := time.Now()
 
-	for i := 0; i < numCalls; i++ {
+	for i := range numCalls {
 		data, err := slave.CallForBuffer("echo", payload)
 		if !assertions.NoError(err, "Call %d failed", i) {
 			return

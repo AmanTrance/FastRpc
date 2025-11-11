@@ -1,12 +1,19 @@
 package fastrpc
 
 import (
+	"bufio"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net"
 	"sync"
 )
+
+type pooledConnection struct {
+	conn   *net.TCPConn
+	reader *bufio.Reader
+	writer *bufio.Writer
+}
 
 type RpcSlave struct {
 	closed          bool
@@ -15,7 +22,7 @@ type RpcSlave struct {
 	masterIP        net.IP
 	mutex           *sync.RWMutex
 	capabilitiesMap map[string]uint32
-	connectionPool  chan *net.TCPConn
+	connectionPool  chan *pooledConnection
 }
 
 func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) {
@@ -26,7 +33,7 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 		masterIP:        masterIP,
 		mutex:           new(sync.RWMutex),
 		capabilitiesMap: make(map[string]uint32),
-		connectionPool:  make(chan *net.TCPConn, poolSize),
+		connectionPool:  make(chan *pooledConnection, poolSize),
 	}
 
 	for range poolSize {
@@ -39,7 +46,15 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 			return nil, err
 		}
 
-		slave.connectionPool <- masterConnection
+		masterConnection.SetReadBuffer(BUFFER_SIZE)
+		masterConnection.SetWriteBuffer(BUFFER_SIZE)
+
+		p := &pooledConnection{
+			conn:   masterConnection,
+			reader: bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+			writer: bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+		}
+		slave.connectionPool <- p
 	}
 
 	masterCapabilities, err := slave.GetMasterCapabilities()
@@ -67,8 +82,8 @@ func (r *RpcSlave) DeInitialize() {
 	clear(r.capabilitiesMap)
 	close(r.connectionPool)
 
-	for masterConnection := range r.connectionPool {
-		masterConnection.Close()
+	for p := range r.connectionPool {
+		p.conn.Close()
 	}
 
 	r.closed = true
@@ -82,30 +97,35 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 	}
 	defer r.mutex.RUnlock()
 
-	connection := <-r.connectionPool
+	p := <-r.connectionPool
 	defer func() {
-		r.connectionPool <- connection
+		r.connectionPool <- p
 	}()
 
-	err := writeSpecifiedBytes(connection, make([]byte, 12), 12)
+	err := writeSpecifiedBytes(p.writer, make([]byte, 12), 12)
 	if err != nil {
 		return nil, err
 	}
 
-	responseBuf, err := readSpecifiedBytes(connection, 9)
+	err = p.writer.Flush()
+	if err != nil {
+		return nil, err
+	}
+
+	responseBuf, err := readSpecifiedBytes(p.reader, 9)
 	if err != nil {
 		return nil, err
 	}
 
 	if (responseBuf[0] & 0b00000001) == 0b00000001 {
-		errorBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		errorBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
 
 		return nil, errors.New(string(errorBuf))
 	} else {
-		dataBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		dataBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
@@ -134,38 +154,43 @@ func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 		return nil, errors.New("unknown rpc method " + method)
 	}
 
-	connection := <-r.connectionPool
+	p := <-r.connectionPool
 	defer func() {
-		r.connectionPool <- connection
+		r.connectionPool <- p
 	}()
 
 	var headersBuffer []byte = make([]byte, 12)
 	binary.BigEndian.PutUint32(headersBuffer[:4], rpcID)
 	binary.BigEndian.PutUint64(headersBuffer[4:], uint64(len(buf)))
-	err := writeSpecifiedBytes(connection, headersBuffer, 12)
+	err := writeSpecifiedBytes(p.writer, headersBuffer, 12)
 	if err != nil {
 		return nil, err
 	}
 
-	err = writeSpecifiedBytes(connection, buf, len(buf))
+	err = writeSpecifiedBytes(p.writer, buf, len(buf))
 	if err != nil {
 		return nil, err
 	}
 
-	responseBuf, err := readSpecifiedBytes(connection, 9)
+	err = p.writer.Flush()
+	if err != nil {
+		return nil, err
+	}
+
+	responseBuf, err := readSpecifiedBytes(p.reader, 9)
 	if err != nil {
 		return nil, err
 	}
 
 	if (responseBuf[0] & 0b00000001) == 0b00000001 {
-		errorBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		errorBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
 
 		return nil, errors.New(string(errorBuf))
 	} else {
-		dataBuf, err := readSpecifiedBytes(connection, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		dataBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
