@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"log"
 	"net"
 	"strconv"
 	"sync"
@@ -382,4 +383,47 @@ func TestConnectionPoisoning(t *testing.T) {
 
 	assertions.NoError(err,
 		"CONNECTION POISONING: Call to new server failed. The slave reused a dead connection.")
+}
+
+func TestLargeDataStress(t *testing.T) {
+	assertions := assert.New(t)
+	_, port, teardown := setupMaster(t)
+	defer teardown()
+
+	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 5)
+	if !assertions.NoError(err) {
+		return
+	}
+	defer slave.DeInitialize()
+
+	const dataSize = 20 * 1024 * 1024
+	const numCalls = 1000
+
+	payload := make([]byte, dataSize)
+	_, err = rand.Read(payload)
+	if !assertions.NoError(err, "Failed to generate random payload") {
+		return
+	}
+
+	log.Printf("Starting TestLargeDataStress: %d calls with %d MB payload...\n", numCalls, dataSize/(1024*1024))
+
+	startTime := time.Now()
+
+	for i := 0; i < numCalls; i++ {
+		data, err := slave.CallForBuffer("echo", payload)
+		if !assertions.NoError(err, "Call %d failed", i) {
+			return
+		}
+
+		if !assertions.Equal(len(payload), len(data), "Returned data size is wrong on call %d", i) {
+			return
+		}
+	}
+
+	duration := time.Since(startTime)
+
+	log.Printf("--- TestLargeDataStress Complete ---")
+	log.Printf("Total time for %d calls: %v", numCalls, duration)
+	log.Printf("Average time per call: %v", duration/time.Duration(numCalls))
+	log.Printf("Average throughput: %.2f MB/s", float64(dataSize*numCalls)/duration.Seconds()/(1024*1024))
 }
