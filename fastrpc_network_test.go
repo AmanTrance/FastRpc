@@ -306,26 +306,36 @@ func TestNetwork_LargeDataStress(t *testing.T) {
 		return
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(numCalls)
+
 	log.Printf("Starting TestNetwork_LargeDataStress: %d calls with %d MB payload...\n", numCalls, dataSize/(1024*1024))
 
 	startTime := time.Now()
 
 	for i := range numCalls {
-		data, err := slave.CallForBuffer("echo", payload)
-		if !assertions.NoError(err, "Call %d failed", i) {
-			return
-		}
-		if !assertions.Equal(len(payload), len(data), "Returned data size is wrong on call %d", i) {
-			return
-		}
-		if i%10 == 0 {
-			log.Printf("...Stress test call %d complete", i)
-		}
+		go func(i int) {
+			defer wg.Done()
+
+			data, err := slave.CallForBuffer("echo", payload)
+			if !assertions.NoError(err, "Call %d failed", i) {
+				return
+			}
+			if !assertions.Equal(len(payload), len(data), "Returned data size is wrong on call %d", i) {
+				return
+			}
+			if i%10 == 0 {
+				log.Printf("...Stress test call %d complete", i)
+			}
+		}(i)
 	}
 
+	wg.Wait()
+
 	duration := time.Since(startTime)
+
 	log.Printf("--- TestNetwork_LargeDataStress Complete ---")
 	log.Printf("Total time for %d calls: %v", numCalls, duration)
-	log.Printf("Average time per call: %v", duration/time.Duration(numCalls))
-	log.Printf("Average throughput: %.2f MB/s", float64(dataSize*numCalls)/duration.Seconds()/(1024*1024))
+	log.Printf("Avg. time per call: %v", duration/time.Duration(numCalls))
+	log.Printf("Avg. calls/sec: %.2f\n", float64(numCalls)/duration.Seconds())
 }
