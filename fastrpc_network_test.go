@@ -297,7 +297,7 @@ func TestNetwork_LargeDataStress(t *testing.T) {
 	}
 	defer slave.DeInitialize()
 
-	const dataSize = 20 * 1024 * 1024
+	const dataSize = fastrpc.BUFFER_SIZE
 	const numCalls = 1000
 
 	payload := make([]byte, dataSize)
@@ -323,9 +323,6 @@ func TestNetwork_LargeDataStress(t *testing.T) {
 			}
 			if !assertions.Equal(len(payload), len(data), "Returned data size is wrong on call %d", i) {
 				return
-			}
-			if i%10 == 0 {
-				log.Printf("...Stress test call %d complete", i)
 			}
 		}(i)
 	}
