@@ -11,25 +11,10 @@ func readSpecifiedBytes(stream io.Reader, bytesCount int) ([]byte, error) {
 		return nil, nil
 	}
 
-	var bytesBuffer []byte = make([]byte, 0, bytesCount)
-	for {
-		var tempBuffer []byte = make([]byte, bytesCount)
-		bytesRead, err := stream.Read(tempBuffer)
-		if err != nil && err != io.EOF {
-			return nil, err
-		}
-
-		bytesBuffer = append(bytesBuffer, tempBuffer[:bytesRead]...)
-
-		if bytesRead < bytesCount && err != io.EOF {
-			bytesCount -= bytesRead
-		} else {
-			if err == io.EOF {
-				return bytesBuffer, io.EOF
-			} else {
-				break
-			}
-		}
+	bytesBuffer := make([]byte, bytesCount)
+	_, err := io.ReadFull(stream, bytesBuffer)
+	if err != nil {
+		return nil, err
 	}
 
 	return bytesBuffer, nil
@@ -64,41 +49,6 @@ func writeSpecifiedBytes(stream io.Writer, buf []byte, bytesCount int) error {
 
 func readWriteSpecifiedBytes(readStream io.Reader, writeStream io.Writer, bytesCount int, chunkSize int) error {
 
-	if chunkSize > bytesCount {
-		return errors.New("chunkSize is not in bounds with bytesCount")
-	}
-
-	if chunkSize < 1 {
-		chunkSize = DEFAULT_CHUNK_SIZE
-	}
-
-	for bytesCount > 0 {
-		if bytesCount >= chunkSize {
-			buf, err := readSpecifiedBytes(readStream, chunkSize)
-			if err != nil {
-				return err
-			}
-
-			err = writeSpecifiedBytes(writeStream, buf, chunkSize)
-			if err != nil {
-				return err
-			}
-
-			bytesCount -= chunkSize
-		} else {
-			buf, err := readSpecifiedBytes(readStream, bytesCount)
-			if err != nil {
-				return err
-			}
-
-			err = writeSpecifiedBytes(writeStream, buf, bytesCount)
-			if err != nil {
-				return err
-			}
-
-			bytesCount = 0
-		}
-	}
-
-	return nil
+	_, err := io.CopyN(writeStream, readStream, int64(bytesCount))
+	return err
 }

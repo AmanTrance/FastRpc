@@ -1,10 +1,10 @@
 package fastrpc
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"io"
-	"net"
 	"sync"
 )
 
@@ -16,15 +16,17 @@ type IOOperator struct {
 	written    bool
 	leftLength uint64
 	mutex      *sync.Mutex
-	stream     *net.TCPConn
+	reader     *bufio.Reader
+	writer     *bufio.Writer
 }
 
-func NewIOOperator(stream *net.TCPConn, readLength uint64) *IOOperator {
+func NewIOOperator(reader *bufio.Reader, writer *bufio.Writer, readLength uint64) *IOOperator {
 	return &IOOperator{
 		written:    false,
 		leftLength: readLength,
 		mutex:      new(sync.Mutex),
-		stream:     stream,
+		reader:     reader,
+		writer:     writer,
 	}
 }
 
@@ -45,7 +47,7 @@ func (i *IOOperator) ReadIOStream(count int) ([]byte, error) {
 		return nil, errors.New("invalid count")
 	}
 
-	buf, err := readSpecifiedBytes(i.stream, count)
+	buf, err := readSpecifiedBytes(i.reader, count)
 	if err != nil {
 		return nil, err
 	}
@@ -68,12 +70,12 @@ func (i *IOOperator) WriteIOFromBuffer(buf []byte) error {
 
 	var metaDataBuffer []byte = make([]byte, 9)
 	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(buf)))
-	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
+	err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
 	if err != nil {
 		return err
 	}
 
-	return writeSpecifiedBytes(i.stream, buf, len(buf))
+	return writeSpecifiedBytes(i.writer, buf, len(buf))
 }
 
 func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize int) error {
@@ -93,12 +95,12 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 
 	var metaDataBuffer []byte = make([]byte, 9)
 	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(count))
-	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
+	err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
 	if err != nil {
 		return err
 	}
 
-	return readWriteSpecifiedBytes(reader, i.stream, count, chunkSize)
+	return readWriteSpecifiedBytes(reader, i.writer, count, chunkSize)
 }
 
 func (i *IOOperator) WriteNothing() error {
@@ -112,7 +114,7 @@ func (i *IOOperator) WriteNothing() error {
 		i.written = true
 	}
 
-	err := writeSpecifiedBytes(i.stream, make([]byte, 9), 9)
+	err := writeSpecifiedBytes(i.writer, make([]byte, 9), 9)
 	if err != nil {
 		return err
 	}
@@ -134,10 +136,10 @@ func (i *IOOperator) WriteError(message string) error {
 	var metaDataBuffer []byte = make([]byte, 9)
 	metaDataBuffer[0] = 0b00000001
 	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(message)))
-	err := writeSpecifiedBytes(i.stream, metaDataBuffer, 9)
+	err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
 	if err != nil {
 		return err
 	}
 
-	return writeSpecifiedBytes(i.stream, []byte(message), len(message))
+	return writeSpecifiedBytes(i.writer, []byte(message), len(message))
 }

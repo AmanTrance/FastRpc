@@ -1,13 +1,16 @@
 package fastrpc
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"sync"
+	"time"
 )
 
 type RpcMaster struct {
@@ -117,23 +120,32 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 			go func() {
 				defer tcpStream.Close()
 
-				streamError := tcpStream.SetReadBuffer(10 * 1024 * 1024)
+				streamError := tcpStream.SetReadBuffer(BUFFER_SIZE)
 				if streamError != nil {
 					return
 				}
 
-				streamError = tcpStream.SetKeepAlive(true)
+				streamError = tcpStream.SetWriteBuffer(BUFFER_SIZE)
 				if streamError != nil {
 					return
 				}
+
+				streamError = tcpStream.SetKeepAlivePeriod(30 * time.Second)
+				if streamError != nil {
+					return
+				}
+
+				bufReader := bufio.NewReaderSize(tcpStream, BUFFER_SIZE)
+				bufWriter := bufio.NewWriterSize(tcpStream, BUFFER_SIZE)
 
 				for {
-					headersBuffer, streamError := readSpecifiedBytes(tcpStream, 12)
+					headersBuffer := make([]byte, 12)
+					_, streamError := io.ReadFull(bufReader, headersBuffer)
 					if streamError != nil {
 						return
 					}
 
-					ioStream := NewIOOperator(tcpStream, binary.BigEndian.Uint64(headersBuffer[4:]))
+					ioStream := NewIOOperator(bufReader, bufWriter, binary.BigEndian.Uint64(headersBuffer[4:]))
 
 					capability, ok := r.registrar[binary.BigEndian.Uint32(headersBuffer[:4])]
 					if !ok {
@@ -143,12 +155,16 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 						}
 
 						if ioStream.leftLength != 0 {
-							streamError = discard(tcpStream, r.discarder, ioStream.leftLength)
+							streamError = discard(bufReader, r.discarder, ioStream.leftLength)
 							if streamError != nil {
 								return
 							}
 						}
 
+						streamError = bufWriter.Flush()
+						if streamError != nil {
+							return
+						}
 						continue
 					}
 
@@ -161,7 +177,7 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 					}
 
 					if ioStream.leftLength != 0 {
-						streamError = discard(tcpStream, r.discarder, ioStream.leftLength)
+						streamError = discard(bufReader, r.discarder, ioStream.leftLength)
 						if streamError != nil {
 							return
 						}
@@ -172,6 +188,11 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 						if streamError != nil {
 							return
 						}
+					}
+
+					streamError = bufWriter.Flush()
+					if streamError != nil {
+						return
 					}
 				}
 			}()
