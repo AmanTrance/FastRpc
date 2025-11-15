@@ -12,7 +12,7 @@ func readSpecifiedBytes(stream io.Reader, bytesCount int) ([]byte, error) {
 	}
 
 	bytesBuffer := make([]byte, bytesCount)
-	_, err := io.ReadFull(stream, bytesBuffer)
+	_, err := io.ReadAtLeast(stream, bytesBuffer, bytesCount)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +49,41 @@ func writeSpecifiedBytes(stream io.Writer, buf []byte, bytesCount int) error {
 
 func readWriteSpecifiedBytes(readStream io.Reader, writeStream io.Writer, bytesCount int, chunkSize int) error {
 
-	_, err := io.CopyN(writeStream, readStream, int64(bytesCount))
-	return err
+	if chunkSize > bytesCount {
+		return errors.New("chunkSize is not in bounds with bytesCount")
+	}
+
+	if chunkSize < 1 {
+		chunkSize = DEFAULT_CHUNK_SIZE
+	}
+
+	for bytesCount > 0 {
+		if bytesCount >= chunkSize {
+			buf, err := readSpecifiedBytes(readStream, chunkSize)
+			if err != nil {
+				return err
+			}
+
+			err = writeSpecifiedBytes(writeStream, buf, chunkSize)
+			if err != nil {
+				return err
+			}
+
+			bytesCount -= chunkSize
+		} else {
+			buf, err := readSpecifiedBytes(readStream, bytesCount)
+			if err != nil {
+				return err
+			}
+
+			err = writeSpecifiedBytes(writeStream, buf, bytesCount)
+			if err != nil {
+				return err
+			}
+
+			bytesCount = 0
+		}
+	}
+
+	return nil
 }

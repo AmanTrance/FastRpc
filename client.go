@@ -5,14 +5,16 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"sync"
+	"time"
 )
 
-type pooledConnection struct {
-	conn   *net.TCPConn
-	reader *bufio.Reader
-	writer *bufio.Writer
+type ConnectionState struct {
+	tcpStream *net.TCPConn
+	reader    *bufio.Reader
+	writer    *bufio.Writer
 }
 
 type RpcSlave struct {
@@ -22,7 +24,7 @@ type RpcSlave struct {
 	masterIP        net.IP
 	mutex           *sync.RWMutex
 	capabilitiesMap map[string]uint32
-	connectionPool  chan *pooledConnection
+	connectionPool  chan *ConnectionState
 }
 
 func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) {
@@ -33,7 +35,7 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 		masterIP:        masterIP,
 		mutex:           new(sync.RWMutex),
 		capabilitiesMap: make(map[string]uint32),
-		connectionPool:  make(chan *pooledConnection, poolSize),
+		connectionPool:  make(chan *ConnectionState, poolSize),
 	}
 
 	for range poolSize {
@@ -49,12 +51,11 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 		masterConnection.SetReadBuffer(BUFFER_SIZE)
 		masterConnection.SetWriteBuffer(BUFFER_SIZE)
 
-		p := &pooledConnection{
-			conn:   masterConnection,
-			reader: bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
-			writer: bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+		slave.connectionPool <- &ConnectionState{
+			tcpStream: masterConnection,
+			reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+			writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
 		}
-		slave.connectionPool <- p
 	}
 
 	masterCapabilities, err := slave.GetMasterCapabilities()
@@ -82,8 +83,8 @@ func (r *RpcSlave) DeInitialize() {
 	clear(r.capabilitiesMap)
 	close(r.connectionPool)
 
-	for p := range r.connectionPool {
-		p.conn.Close()
+	for connectionState := range r.connectionPool {
+		connectionState.tcpStream.Close()
 	}
 
 	r.closed = true
@@ -92,40 +93,66 @@ func (r *RpcSlave) DeInitialize() {
 func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	if r.closed {
 		return nil, errors.New("rpc slave is closed")
 	}
-	defer r.mutex.RUnlock()
 
-	p := <-r.connectionPool
+	var err error
+	connectionState := <-r.connectionPool
 	defer func() {
-		r.connectionPool <- p
+		if err != nil {
+			connectionState.tcpStream.Close()
+
+		connectionRetry:
+			masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
+				IP:   r.masterIP,
+				Port: r.masterPort,
+			})
+			if connectionErr != nil {
+				log.Default().Printf("Error: %s\n", err.Error())
+				time.Sleep(time.Second * 5)
+				goto connectionRetry
+			}
+
+			masterConnection.SetReadBuffer(BUFFER_SIZE)
+			masterConnection.SetWriteBuffer(BUFFER_SIZE)
+
+			r.connectionPool <- &ConnectionState{
+				tcpStream: masterConnection,
+				reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+				writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+			}
+		} else {
+			r.connectionPool <- connectionState
+		}
 	}()
 
-	err := writeSpecifiedBytes(p.writer, make([]byte, 12), 12)
+	err = writeSpecifiedBytes(connectionState.writer, make([]byte, 12), 12)
 	if err != nil {
 		return nil, err
 	}
 
-	err = p.writer.Flush()
+	err = connectionState.writer.Flush()
 	if err != nil {
 		return nil, err
 	}
 
-	responseBuf, err := readSpecifiedBytes(p.reader, 9)
+	responseBuf, err := readSpecifiedBytes(connectionState.reader, 9)
 	if err != nil {
 		return nil, err
 	}
 
 	if (responseBuf[0] & 0b00000001) == 0b00000001 {
-		errorBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		errorBuf, err := readSpecifiedBytes(connectionState.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
 
 		return nil, errors.New(string(errorBuf))
 	} else {
-		dataBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		dataBuf, err := readSpecifiedBytes(connectionState.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
@@ -144,53 +171,79 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 
 	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	if r.closed {
 		return nil, errors.New("rpc slave is closed")
 	}
-	defer r.mutex.RUnlock()
 
 	rpcID, ok := r.capabilitiesMap[method]
 	if !ok {
 		return nil, errors.New("unknown rpc method " + method)
 	}
 
-	p := <-r.connectionPool
+	var err error
+	connectionState := <-r.connectionPool
 	defer func() {
-		r.connectionPool <- p
+		if err != nil {
+			connectionState.tcpStream.Close()
+
+		connectionRetry:
+			masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
+				IP:   r.masterIP,
+				Port: r.masterPort,
+			})
+			if connectionErr != nil {
+				log.Default().Printf("Error: %s\n", err.Error())
+				time.Sleep(time.Second * 5)
+				goto connectionRetry
+			}
+
+			masterConnection.SetReadBuffer(BUFFER_SIZE)
+			masterConnection.SetWriteBuffer(BUFFER_SIZE)
+
+			r.connectionPool <- &ConnectionState{
+				tcpStream: masterConnection,
+				reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+				writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+			}
+		} else {
+			r.connectionPool <- connectionState
+		}
 	}()
 
 	var headersBuffer []byte = make([]byte, 12)
 	binary.BigEndian.PutUint32(headersBuffer[:4], rpcID)
 	binary.BigEndian.PutUint64(headersBuffer[4:], uint64(len(buf)))
-	err := writeSpecifiedBytes(p.writer, headersBuffer, 12)
+	err = writeSpecifiedBytes(connectionState.writer, headersBuffer, 12)
 	if err != nil {
 		return nil, err
 	}
 
-	err = writeSpecifiedBytes(p.writer, buf, len(buf))
+	err = writeSpecifiedBytes(connectionState.writer, buf, len(buf))
 	if err != nil {
 		return nil, err
 	}
 
-	err = p.writer.Flush()
+	err = connectionState.writer.Flush()
 	if err != nil {
 		return nil, err
 	}
 
-	responseBuf, err := readSpecifiedBytes(p.reader, 9)
+	responseBuf, err := readSpecifiedBytes(connectionState.reader, 9)
 	if err != nil {
 		return nil, err
 	}
 
 	if (responseBuf[0] & 0b00000001) == 0b00000001 {
-		errorBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		errorBuf, err := readSpecifiedBytes(connectionState.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}
 
 		return nil, errors.New(string(errorBuf))
 	} else {
-		dataBuf, err := readSpecifiedBytes(p.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
+		dataBuf, err := readSpecifiedBytes(connectionState.reader, int(binary.BigEndian.Uint64(responseBuf[1:])))
 		if err != nil {
 			return nil, err
 		}

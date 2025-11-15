@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"os"
 	"sync"
@@ -139,8 +138,7 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 				bufWriter := bufio.NewWriterSize(tcpStream, BUFFER_SIZE)
 
 				for {
-					headersBuffer := make([]byte, 12)
-					_, streamError := io.ReadFull(bufReader, headersBuffer)
+					headersBuffer, streamError := readSpecifiedBytes(bufReader, 12)
 					if streamError != nil {
 						return
 					}
