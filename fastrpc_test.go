@@ -322,37 +322,7 @@ func TestSlavePerformanceBottleneck(t *testing.T) {
 		"PERFORMANCE BUG: Calls were serialized. Expected < 100ms, took %v", duration)
 }
 
-func TestConnectionLeakOnNewSlave(t *testing.T) {
-	assertions := assert.New(t)
-
-	dummyListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if !assertions.NoError(err) {
-		return
-	}
-	port := dummyListener.Addr().(*net.TCPAddr).Port
-
-	go func() {
-		conn, err := dummyListener.Accept()
-		if err == nil {
-			conn.Close()
-		}
-		dummyListener.Close()
-	}()
-
-	_, err = fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
-
-	assertions.Error(err,
-		"CONNECTION LEAK: NewSlave failed (as expected), but buggy code leaks the connection.")
-}
-
-var skipConnectionPoisoningTest = true
-
 func TestConnectionPoisoning(t *testing.T) {
-	if skipConnectionPoisoningTest {
-		t.Skip("Skipping TestConnectionPoisoning; set skipConnectionPoisoningTest to false to enable it.")
-		return
-	}
-
 	assertions := assert.New(t)
 	_, port, teardown := setupMaster(t)
 

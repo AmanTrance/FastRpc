@@ -105,25 +105,27 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 		if err != nil {
 			connectionState.tcpStream.Close()
 
-		connectionRetry:
-			masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
-				IP:   r.masterIP,
-				Port: r.masterPort,
-			})
-			if connectionErr != nil {
-				log.Default().Printf("Error: %s\n", err.Error())
-				time.Sleep(time.Second * 5)
-				goto connectionRetry
-			}
+			go func() {
+			connectionRetry:
+				masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
+					IP:   r.masterIP,
+					Port: r.masterPort,
+				})
+				if connectionErr != nil {
+					log.Default().Printf("Error: %s\n", err.Error())
+					time.Sleep(time.Second * 5)
+					goto connectionRetry
+				}
 
-			masterConnection.SetReadBuffer(BUFFER_SIZE)
-			masterConnection.SetWriteBuffer(BUFFER_SIZE)
+				masterConnection.SetReadBuffer(BUFFER_SIZE)
+				masterConnection.SetWriteBuffer(BUFFER_SIZE)
 
-			r.connectionPool <- &ConnectionState{
-				tcpStream: masterConnection,
-				reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
-				writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
-			}
+				r.connectionPool <- &ConnectionState{
+					tcpStream: masterConnection,
+					reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+					writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+				}
+			}()
 		} else {
 			r.connectionPool <- connectionState
 		}
@@ -179,7 +181,7 @@ func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 
 	rpcID, ok := r.capabilitiesMap[method]
 	if !ok {
-		return nil, errors.New("unknown rpc method " + method)
+		return nil, errors.New("unknown rpc method: " + method)
 	}
 
 	var err error
@@ -188,25 +190,27 @@ func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 		if err != nil {
 			connectionState.tcpStream.Close()
 
-		connectionRetry:
-			masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
-				IP:   r.masterIP,
-				Port: r.masterPort,
-			})
-			if connectionErr != nil {
-				log.Default().Printf("Error: %s\n", err.Error())
-				time.Sleep(time.Second * 5)
-				goto connectionRetry
-			}
+			go func() {
+			connectionRetry:
+				masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
+					IP:   r.masterIP,
+					Port: r.masterPort,
+				})
+				if connectionErr != nil {
+					log.Default().Printf("Error: %s\n", err.Error())
+					time.Sleep(time.Second * 5)
+					goto connectionRetry
+				}
 
-			masterConnection.SetReadBuffer(BUFFER_SIZE)
-			masterConnection.SetWriteBuffer(BUFFER_SIZE)
+				masterConnection.SetReadBuffer(BUFFER_SIZE)
+				masterConnection.SetWriteBuffer(BUFFER_SIZE)
 
-			r.connectionPool <- &ConnectionState{
-				tcpStream: masterConnection,
-				reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
-				writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
-			}
+				r.connectionPool <- &ConnectionState{
+					tcpStream: masterConnection,
+					reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+					writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+				}
+			}()
 		} else {
 			r.connectionPool <- connectionState
 		}
