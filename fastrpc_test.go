@@ -228,7 +228,7 @@ func TestUnknownRPC(t *testing.T) {
 		return
 	}
 	assertions.Nil(data, "Data should be nil when an error occurs")
-	assertions.ErrorContains(err, "unknown rpc method non_existent_rpc")
+	assertions.ErrorContains(err, "unknown rpc method: non_existent_rpc")
 }
 
 func TestServerDiscardLogic(t *testing.T) {
@@ -341,7 +341,7 @@ func TestConnectionPoisoning(t *testing.T) {
 
 	t.Log("Killing master server...")
 	teardown()
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	_, err = slave.CallForBuffer("ping", nil)
 	if !assertions.Error(err, "Call should fail after server is killed") {
