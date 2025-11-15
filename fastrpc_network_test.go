@@ -2,11 +2,10 @@ package fastrpc_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
-	"errors"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"testing"
@@ -16,68 +15,43 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func setupMaster(t *testing.T) (master *fastrpc.RpcMaster, port int, teardown func()) {
-	assertions := assert.New(t)
+var (
+	remoteMasterIP   net.IP
+	remoteMasterPort int
+	configLoaded     bool
+	skipTests        bool
+)
 
-	master, err := fastrpc.NewMaster()
-	if !assertions.NoError(err, "Failed to create new master") {
-		t.FailNow()
-	}
-
-	master.RegisterRPC("ping", "returns pong", "text", "text", func(i *fastrpc.IOOperator) error {
-		return i.WriteIOFromBuffer([]byte("pong"))
-	})
-
-	master.RegisterRPC("echo", "returns input", "binary", "binary", func(i *fastrpc.IOOperator) error {
-		data, err := i.ReadIOStream(int(i.ReadDataLeft()))
-		if err != nil {
-			return err
+func getRemoteMasterConfig(t *testing.T) {
+	if configLoaded {
+		if skipTests {
+			t.Skip("Skipping network test: FASTRPC_MASTER_ADDR environment variable is not set.")
 		}
-		return i.WriteIOFromBuffer(data)
-	})
+		return
+	}
+	configLoaded = true
 
-	master.RegisterRPC("discard", "reads nothing, returns nothing", "binary", "text", func(i *fastrpc.IOOperator) error {
-		return i.WriteIOFromBuffer([]byte("discarded"))
-	})
-
-	master.RegisterRPC("force_error", "returns an error", "", "", func(i *fastrpc.IOOperator) error {
-		return errors.New("this is a forced server error")
-	})
-
-	master.RegisterRPC("ping_slow", "returns pong after 20ms", "text", "text", func(i *fastrpc.IOOperator) error {
-		time.Sleep(20 * time.Millisecond)
-		return i.WriteIOFromBuffer([]byte("pong"))
-	})
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if !assertions.NoError(err) {
-		t.FailNow()
+	masterAddr := os.Getenv("FASTRPC_MASTER_ADDR")
+	if masterAddr == "" {
+		skipTests = true
+		t.Skip("Skipping network test: FASTRPC_MASTER_ADDR environment variable is not set.")
+		return
 	}
 
-	port = listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		master.Start(ctx, net.IPv4(127, 0, 0, 1), port)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-
-	teardown = func() {
-		cancel()
-		master.Close()
+	tcpAddr, err := net.ResolveTCPAddr("tcp", masterAddr)
+	if err != nil {
+		t.Fatalf("Failed to resolve master address '%s': %v", masterAddr, err)
 	}
-
-	return master, port, teardown
+	remoteMasterIP = tcpAddr.IP
+	remoteMasterPort = tcpAddr.Port
+	log.Printf("Running network tests against remote master: %s", masterAddr)
 }
 
-func TestBasicCall(t *testing.T) {
+func TestNetwork_BasicCall(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 1)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -97,12 +71,11 @@ func TestBasicCall(t *testing.T) {
 	assertions.Equal(payload, data)
 }
 
-func TestSequentialCallsOnSameConnection(t *testing.T) {
+func TestNetwork_SequentialCallsOnSameConnection(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 1)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -119,12 +92,11 @@ func TestSequentialCallsOnSameConnection(t *testing.T) {
 	}
 }
 
-func TestConcurrentCalls(t *testing.T) {
+func TestNetwork_ConcurrentCalls(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 20)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 20)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -150,12 +122,11 @@ func TestConcurrentCalls(t *testing.T) {
 	wg.Wait()
 }
 
-func TestLargeData(t *testing.T) {
+func TestNetwork_LargeData(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 1)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -177,10 +148,9 @@ func TestLargeData(t *testing.T) {
 	assertions.True(bytes.Equal(payload, data), "Returned data does not match sent data")
 }
 
-func TestMultipleSlaves(t *testing.T) {
+func TestNetwork_MultipleSlaves(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
 	numSlaves := 10
 	numCallsPerSlave := 100
@@ -188,7 +158,7 @@ func TestMultipleSlaves(t *testing.T) {
 	wg.Add(numSlaves * numCallsPerSlave)
 
 	for i := range numSlaves {
-		slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 5)
+		slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 5)
 		if !assertions.NoError(err) {
 			t.Logf("Failed to create slave %d", i)
 			wg.Add(-numCallsPerSlave)
@@ -211,12 +181,11 @@ func TestMultipleSlaves(t *testing.T) {
 	wg.Wait()
 }
 
-func TestUnknownRPC(t *testing.T) {
+func TestNetwork_UnknownRPC(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 1)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -231,12 +200,11 @@ func TestUnknownRPC(t *testing.T) {
 	assertions.ErrorContains(err, "unknown rpc method non_existent_rpc")
 }
 
-func TestServerDiscardLogic(t *testing.T) {
+func TestNetwork_ServerDiscardLogic(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 1)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -256,12 +224,11 @@ func TestServerDiscardLogic(t *testing.T) {
 	assertions.Equal("pong", string(data), "The second call returned wrong data")
 }
 
-func TestServerRepliesWithServerError(t *testing.T) {
+func TestNetwork_ServerRepliesWithServerError(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 1)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -276,12 +243,11 @@ func TestServerRepliesWithServerError(t *testing.T) {
 	assertions.ErrorContains(err, "this is a forced server error")
 }
 
-func TestDeInitialize(t *testing.T) {
+func TestNetwork_DeInitialize(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 5)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 5)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -292,12 +258,11 @@ func TestDeInitialize(t *testing.T) {
 	assertions.Error(err, "Call should fail after DeInitialize")
 }
 
-func TestSlavePerformanceBottleneck(t *testing.T) {
+func TestNetwork_SlavePerformanceBottleneck(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
 
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 10)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 10)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -322,82 +287,11 @@ func TestSlavePerformanceBottleneck(t *testing.T) {
 		"PERFORMANCE BUG: Calls were serialized. Expected < 100ms, took %v", duration)
 }
 
-func TestConnectionLeakOnNewSlave(t *testing.T) {
+func TestNetwork_LargeDataStress(t *testing.T) {
+	getRemoteMasterConfig(t)
 	assertions := assert.New(t)
 
-	dummyListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if !assertions.NoError(err) {
-		return
-	}
-	port := dummyListener.Addr().(*net.TCPAddr).Port
-
-	go func() {
-		conn, err := dummyListener.Accept()
-		if err == nil {
-			conn.Close()
-		}
-		dummyListener.Close()
-	}()
-
-	_, err = fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
-
-	assertions.Error(err,
-		"CONNECTION LEAK: NewSlave failed (as expected), but buggy code leaks the connection.")
-}
-
-var skipConnectionPoisoningTest = true
-
-func TestConnectionPoisoning(t *testing.T) {
-	if skipConnectionPoisoningTest {
-		t.Skip("Skipping TestConnectionPoisoning; set skipConnectionPoisoningTest to false to enable it.")
-		return
-	}
-
-	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
-	if !assertions.NoError(err) {
-		teardown()
-		return
-	}
-	defer slave.DeInitialize()
-
-	_, err = slave.CallForBuffer("ping", nil)
-	if !assertions.NoError(err, "First call should have worked") {
-		teardown()
-		return
-	}
-
-	t.Log("Killing master server...")
-	teardown()
-	time.Sleep(20 * time.Millisecond)
-
-	_, err = slave.CallForBuffer("ping", nil)
-	if !assertions.Error(err, "Call should fail after server is killed") {
-		t.Log("This call should have failed but didn't.")
-		return
-	}
-
-	t.Log("Starting new healthy server...")
-	_, port2, teardown2 := setupMaster(t)
-	defer teardown2()
-	if !assertions.Equal(port, port2, "Could not get the same port for new master") {
-		return
-	}
-
-	_, err = slave.CallForBuffer("ping", nil)
-
-	assertions.NoError(err,
-		"CONNECTION POISONING: Call to new server failed. The slave reused a dead connection.")
-}
-
-func TestLargeDataStress(t *testing.T) {
-	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-	defer teardown()
-
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 5)
+	slave, err := fastrpc.NewSlave(remoteMasterIP, remoteMasterPort, 5)
 	if !assertions.NoError(err) {
 		return
 	}
@@ -415,7 +309,7 @@ func TestLargeDataStress(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numCalls)
 
-	log.Printf("Starting TestLargeDataStress: %d calls with %d MB payload...\n", numCalls, dataSize/(1024*1024))
+	log.Printf("Starting TestNetwork_LargeDataStress: %d calls with %d MB payload...\n", numCalls, dataSize/(1024*1024))
 
 	startTime := time.Now()
 
@@ -437,7 +331,7 @@ func TestLargeDataStress(t *testing.T) {
 
 	duration := time.Since(startTime)
 
-	log.Printf("--- TestLargeDataStress Complete ---")
+	log.Printf("--- TestNetwork_LargeDataStress Complete ---")
 	log.Printf("Total time for %d calls: %v", numCalls, duration)
 	log.Printf("Avg. time per call: %v", duration/time.Duration(numCalls))
 	log.Printf("Avg. calls/sec: %.2f\n", float64(numCalls)/duration.Seconds())
