@@ -163,6 +163,7 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 						if streamError != nil {
 							return
 						}
+
 						continue
 					}
 

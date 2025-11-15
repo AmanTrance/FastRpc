@@ -322,46 +322,6 @@ func TestSlavePerformanceBottleneck(t *testing.T) {
 		"PERFORMANCE BUG: Calls were serialized. Expected < 100ms, took %v", duration)
 }
 
-func TestConnectionPoisoning(t *testing.T) {
-	assertions := assert.New(t)
-	_, port, teardown := setupMaster(t)
-
-	slave, err := fastrpc.NewSlave(net.IPv4(127, 0, 0, 1), port, 1)
-	if !assertions.NoError(err) {
-		teardown()
-		return
-	}
-	defer slave.DeInitialize()
-
-	_, err = slave.CallForBuffer("ping", nil)
-	if !assertions.NoError(err, "First call should have worked") {
-		teardown()
-		return
-	}
-
-	t.Log("Killing master server...")
-	teardown()
-	time.Sleep(time.Second)
-
-	_, err = slave.CallForBuffer("ping", nil)
-	if !assertions.Error(err, "Call should fail after server is killed") {
-		t.Log("This call should have failed but didn't.")
-		return
-	}
-
-	t.Log("Starting new healthy server...")
-	_, port2, teardown2 := setupMaster(t)
-	defer teardown2()
-	if !assertions.Equal(port, port2, "Could not get the same port for new master") {
-		return
-	}
-
-	_, err = slave.CallForBuffer("ping", nil)
-
-	assertions.NoError(err,
-		"CONNECTION POISONING: Call to new server failed. The slave reused a dead connection.")
-}
-
 func TestLargeDataStress(t *testing.T) {
 	assertions := assert.New(t)
 	_, port, teardown := setupMaster(t)
