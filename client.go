@@ -11,12 +11,15 @@ import (
 	"time"
 )
 
-const MAX_RETRY_ATTEMPTS = 50
-
 type ConnectionState struct {
 	tcpStream *net.TCPConn
 	reader    *bufio.Reader
 	writer    *bufio.Writer
+}
+
+type RpcSlaveConfig struct {
+	maxRetryAttempts int
+	retryAfter       time.Duration
 }
 
 type RpcSlave struct {
@@ -27,6 +30,7 @@ type RpcSlave struct {
 	mutex           *sync.RWMutex
 	capabilitiesMap map[string]uint32
 	connectionPool  chan *ConnectionState
+	config          RpcSlaveConfig
 }
 
 func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) {
@@ -38,6 +42,10 @@ func NewSlave(masterIP net.IP, masterPort int, poolSize int) (*RpcSlave, error) 
 		mutex:           new(sync.RWMutex),
 		capabilitiesMap: make(map[string]uint32),
 		connectionPool:  make(chan *ConnectionState, poolSize),
+		config: RpcSlaveConfig{
+			maxRetryAttempts: 50,
+			retryAfter:       time.Millisecond * 200,
+		},
 	}
 
 	for range poolSize {
@@ -92,28 +100,23 @@ func (r *RpcSlave) DeInitialize() {
 	r.closed = true
 }
 
-func (r *RpcSlave) recoverConnection() {
-	go func() {
-	connectionRetry:
-		masterConnection, connectionErr := net.DialTCP("tcp", nil, &net.TCPAddr{
-			IP:   r.masterIP,
-			Port: r.masterPort,
-		})
-		if connectionErr != nil {
-			log.Default().Printf("Connection retry failed: %v\n", connectionErr)
-			time.Sleep(time.Second * 5)
-			goto connectionRetry
-		}
+func (r *RpcSlave) createNewConnection() (*ConnectionState, error) {
+	masterConnection, err := net.DialTCP("tcp", nil, &net.TCPAddr{
+		IP:   r.masterIP,
+		Port: r.masterPort,
+	})
+	if err != nil {
+		return nil, err
+	}
 
-		masterConnection.SetReadBuffer(BUFFER_SIZE)
-		masterConnection.SetWriteBuffer(BUFFER_SIZE)
+	masterConnection.SetReadBuffer(BUFFER_SIZE)
+	masterConnection.SetWriteBuffer(BUFFER_SIZE)
 
-		r.connectionPool <- &ConnectionState{
-			tcpStream: masterConnection,
-			reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
-			writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
-		}
-	}()
+	return &ConnectionState{
+		tcpStream: masterConnection,
+		reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),
+		writer:    bufio.NewWriterSize(masterConnection, BUFFER_SIZE),
+	}, nil
 }
 
 func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
@@ -125,10 +128,21 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 		return nil, errors.New("rpc slave is closed")
 	}
 
-	for range MAX_RETRY_ATTEMPTS {
-		connectionState, ok := <-r.connectionPool
-		if !ok {
-			return nil, errors.New("connection pool closed")
+	connectionState, ok := <-r.connectionPool
+	if !ok {
+		return nil, errors.New("connection pool closed")
+	}
+
+	for range r.config.maxRetryAttempts {
+
+		if connectionState == nil {
+			var err error
+			connectionState, err = r.createNewConnection()
+			if err != nil {
+				log.Printf("Connection retry failed: %v", err)
+				time.Sleep(r.config.retryAfter)
+				continue
+			}
 		}
 
 		err := writeSpecifiedBytes(connectionState.writer, make([]byte, 12), 12)
@@ -143,7 +157,7 @@ func (r *RpcSlave) GetMasterCapabilities() ([]MasterCapabilitiesDTO, error) {
 
 		if err != nil {
 			connectionState.tcpStream.Close()
-			r.recoverConnection()
+			connectionState = nil
 			continue
 		}
 
@@ -187,10 +201,21 @@ func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 		return nil, errors.New("unknown rpc method: " + method)
 	}
 
-	for range MAX_RETRY_ATTEMPTS {
-		connectionState, ok := <-r.connectionPool
-		if !ok {
-			return nil, errors.New("connection pool closed")
+	connectionState, ok := <-r.connectionPool
+	if !ok {
+		return nil, errors.New("connection pool closed")
+	}
+
+	for range r.config.maxRetryAttempts {
+
+		if connectionState == nil {
+			var err error
+			connectionState, err = r.createNewConnection()
+			if err != nil {
+				log.Printf("Connection retry failed: %v", err)
+				time.Sleep(r.config.retryAfter)
+				continue
+			}
 		}
 
 		var headersBuffer []byte = make([]byte, 12)
@@ -212,7 +237,7 @@ func (r *RpcSlave) CallForBuffer(method string, buf []byte) ([]byte, error) {
 
 		if err != nil {
 			connectionState.tcpStream.Close()
-			r.recoverConnection()
+			connectionState = nil
 			continue
 		}
 
