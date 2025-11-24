@@ -66,16 +66,16 @@ func (i *IOOperator) WriteIOFromBuffer(buf []byte) error {
 		return nil
 	} else {
 		i.written = true
-	}
 
-	var metaDataBuffer []byte = make([]byte, 9)
-	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(buf)))
-	err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
-	if err != nil {
-		return err
-	}
+		var metaDataBuffer []byte = make([]byte, 9)
+		binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(buf)))
+		err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
+		if err != nil {
+			return err
+		}
 
-	return writeSpecifiedBytes(i.writer, buf, len(buf))
+		return writeSpecifiedBytes(i.writer, buf, len(buf))
+	}
 }
 
 func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize int) error {
@@ -91,16 +91,16 @@ func (i *IOOperator) WriteIOFromReader(reader io.Reader, count int, chunkSize in
 		return nil
 	} else {
 		i.written = true
-	}
 
-	var metaDataBuffer []byte = make([]byte, 9)
-	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(count))
-	err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
-	if err != nil {
-		return err
-	}
+		var metaDataBuffer []byte = make([]byte, 9)
+		binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(count))
+		err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
+		if err != nil {
+			return err
+		}
 
-	return readWriteSpecifiedBytes(reader, i.writer, count, chunkSize)
+		return readWriteSpecifiedBytes(reader, i.writer, count, chunkSize)
+	}
 }
 
 func (i *IOOperator) WriteNothing() error {
@@ -112,14 +112,9 @@ func (i *IOOperator) WriteNothing() error {
 		return nil
 	} else {
 		i.written = true
-	}
 
-	err := writeSpecifiedBytes(i.writer, make([]byte, 9), 9)
-	if err != nil {
-		return err
+		return writeSpecifiedBytes(i.writer, make([]byte, 9), 9)
 	}
-
-	return nil
 }
 
 func (i *IOOperator) WriteError(message string) error {
@@ -131,15 +126,15 @@ func (i *IOOperator) WriteError(message string) error {
 		return nil
 	} else {
 		i.written = true
-	}
 
-	var metaDataBuffer []byte = make([]byte, 9)
-	metaDataBuffer[0] = 0b00000001
-	binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(message)))
-	err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
-	if err != nil {
-		return err
-	}
+		var metaDataBuffer []byte = make([]byte, 9)
+		metaDataBuffer[0] = 0b00000001
+		binary.BigEndian.PutUint64(metaDataBuffer[1:], uint64(len(message)))
+		err := writeSpecifiedBytes(i.writer, metaDataBuffer, 9)
+		if err != nil {
+			return err
+		}
 
-	return writeSpecifiedBytes(i.writer, []byte(message), len(message))
+		return writeSpecifiedBytes(i.writer, []byte(message), len(message))
+	}
 }

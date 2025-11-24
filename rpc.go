@@ -129,7 +129,12 @@ func (r *RpcMaster) Start(ctx context.Context, ip net.IP, port int) error {
 					return
 				}
 
-				streamError = tcpStream.SetKeepAlivePeriod(30 * time.Second)
+				streamError = tcpStream.SetKeepAliveConfig(net.KeepAliveConfig{
+					Enable:   true,
+					Idle:     time.Hour,
+					Interval: time.Minute,
+					Count:    5,
+				})
 				if streamError != nil {
 					return
 				}
