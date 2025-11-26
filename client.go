@@ -246,6 +246,9 @@ func (r *RpcSlave) createNewConnection() (*ConnectionState, error) {
 		return nil, err
 	}
 
+	masterConnection.SetReadBuffer(BUFFER_SIZE)
+	masterConnection.SetWriteBuffer(BUFFER_SIZE)
+
 	return &ConnectionState{
 		tcpStream: masterConnection,
 		reader:    bufio.NewReaderSize(masterConnection, BUFFER_SIZE),

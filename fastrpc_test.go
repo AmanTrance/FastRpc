@@ -333,7 +333,7 @@ func TestLargeDataStress(t *testing.T) {
 	}
 	defer slave.DeInitialize()
 
-	const dataSize = fastrpc.BUFFER_SIZE
+	const dataSize = 5 * 1024 * 1024
 	const numCalls = 1000
 
 	payload := make([]byte, dataSize)
